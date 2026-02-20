@@ -3,12 +3,11 @@ pipeline {
         docker {
             image 'maven:3.9.6-eclipse-temurin-17'  // Java 17 + Maven 3.9.x
             args '-v /var/run/docker.sock:/var/run/docker.sock -v /var/jenkins_home/.m2:/root/.m2 -u root'
-            // Mounts host Docker socket + Maven cache + runs as root
         }
     }
 
     environment {
-        SONAR_TOKEN = credentials('sonar-token')  // Your Sonar token credential
+        SONAR_TOKEN = credentials('sonar-token')  // Your Sonar token
     }
 
     stages {
@@ -57,23 +56,12 @@ pipeline {
                                                      usernameVariable: 'DOCKER_USER',
                                                      passwordVariable: 'DOCKER_PASS')]) {
                         sh '''
-                            # Build the image with build-number tag
                             docker build -t yogeshawsci/spring-boot-demo:${BUILD_NUMBER} .
-                            
-                            # Create the :latest tag from the same image
                             docker tag yogeshawsci/spring-boot-demo:${BUILD_NUMBER} yogeshawsci/spring-boot-demo:latest
-                            
-                            # Debug: confirm both tags exist locally
                             docker images | grep spring-boot-demo
-                            
-                            # Login to Docker Hub with PAT
                             echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
-                            
-                            # Push both tags
                             docker push yogeshawsci/spring-boot-demo:${BUILD_NUMBER}
                             docker push yogeshawsci/spring-boot-demo:latest
-                            
-                            # Logout for security
                             docker logout
                         '''
                     }
@@ -91,13 +79,11 @@ pipeline {
                         git config --global user.email "jenkins@ci"
                         git config --global user.name "Jenkins"
                         
-                        # Update image tag in deployment.yaml
-                        sed -i "s|image:.*|image: yogeshawsci/spring-boot-demo:${BUILD_NUMBER}|" k8s/deployment.yaml
+                        sed -i "s|image:.*|image: yogeshawsci/spring-boot-demo:${BUILD_NUMBER}|" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
                         
-                        git add k8s/deployment.yaml
+                        git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
                         git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
                         
-                        # Push to your real GitHub repo using PAT
                         git push https://${GITHUB_TOKEN}@github.com/Yogeshgangaraju/Jenkins-Zero-To-Hero.git HEAD:main
                     '''
                 }

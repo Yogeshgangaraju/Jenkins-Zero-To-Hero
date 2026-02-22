@@ -82,12 +82,15 @@ pipeline {
                         git config --global user.email "jenkins@ci"
                         git config --global user.name "Jenkins"
                         
-                        # Update image tag (correct path from your find)
+                        # Update image tag in the deployment manifest
                         sed -i "s|image:.*|image: yogeshawsci/spring-boot-demo:${BUILD_NUMBER}|" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
                         
                         git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-                        git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
                         
+                        # The [ci skip] tag prevents Jenkins from triggering a new build from this commit
+                        git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]" || echo "No changes to commit"
+                        
+                        # Push back to main
                         git push https://${GITHUB_TOKEN}@github.com/Yogeshgangaraju/Jenkins-Zero-To-Hero.git HEAD:main
                     '''
                 }

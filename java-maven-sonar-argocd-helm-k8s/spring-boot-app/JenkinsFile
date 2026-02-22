@@ -14,13 +14,11 @@ pipeline {
         stage('Stop Loop Check') {
             steps {
                 script {
-                    // Check if the last commit message contains our skip tag
                     def commitMsg = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
                     echo "Current Commit Message: ${commitMsg}"
-                    
                     if (commitMsg.contains("[ci skip]")) {
                         currentBuild.result = 'ABORTED'
-                        error("Loop Prevention: Skipping build because commit was made by Jenkins.")
+                        error("Loop Prevention: Skipping build.")
                     }
                 }
             }
@@ -41,39 +39,25 @@ pipeline {
         }
 
         stage('Static Code Analysis') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
             steps {
                 dir('java-maven-sonar-argocd-helm-k8s/spring-boot-app') {
                     withSonarQubeEnv('SonarQube') {
-                        sh '''
-                            mvn sonar:sonar \
-                                -Dsonar.projectKey=spring-boot-demo \
-                                -Dsonar.host.url=${SONAR_HOST_URL} \
-                                -Dsonar.login=${SONAR_TOKEN}
-                        '''
+                        sh "mvn sonar:sonar -Dsonar.projectKey=spring-boot-demo -Dsonar.login=${SONAR_TOKEN}"
                     }
                 }
             }
         }
 
         stage('Build and Push Docker Image') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
             steps {
                 dir('java-maven-sonar-argocd-helm-k8s/spring-boot-app') {
-                    withCredentials([usernamePassword(credentialsId: 'docker-cred',
-                                                     usernameVariable: 'DOCKER_USER',
-                                                     passwordVariable: 'DOCKER_PASS')]) {
+                    withCredentials([usernamePassword(credentialsId: 'docker-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                         sh '''
                             docker build -t yogeshawsci/spring-boot-demo:${BUILD_NUMBER} .
                             docker tag yogeshawsci/spring-boot-demo:${BUILD_NUMBER} yogeshawsci/spring-boot-demo:latest
                             echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
                             docker push yogeshawsci/spring-boot-demo:${BUILD_NUMBER}
                             docker push yogeshawsci/spring-boot-demo:latest
-                            docker logout
                         '''
                     }
                 }
@@ -81,24 +65,22 @@ pipeline {
         }
 
         stage('Update Deployment File') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
             steps {
                 withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
                     sh '''
-                        git config --global --add safe.directory /var/jenkins_home/workspace/Spring-Boot-CI-CD-Pipeline
                         git config --global user.email "jenkins@ci"
                         git config --global user.name "Jenkins"
+                        git config --global --add safe.directory /var/jenkins_home/workspace/Spring-Boot-CI-CD-Pipeline
                         
-                        # Update the manifest
+                        # 1. Pull the latest changes to avoid "fetch first" error
+                        git pull https://${GITHUB_TOKEN}@github.com/Yogeshgangaraju/Jenkins-Zero-To-Hero.git main --rebase
+                        
+                        # 2. Update image tag
                         sed -i "s|image:.*|image: yogeshawsci/spring-boot-demo:${BUILD_NUMBER}|" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
                         
+                        # 3. Commit and Push
                         git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-                        
-                        # The vital [ci skip] tag
                         git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]" || echo "No changes to commit"
-                        
                         git push https://${GITHUB_TOKEN}@github.com/Yogeshgangaraju/Jenkins-Zero-To-Hero.git HEAD:main
                     '''
                 }
